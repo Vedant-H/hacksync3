@@ -28,8 +28,8 @@ export default function Profile() {
     <div className="flex flex-col items-center justify-center h-screen space-y-4">
       {user ? (
         <>
-          <h2 className="text-2xl">Hello, {user.username}!</h2>
-          <p className="text-xl">{user.email}</p>
+          {/* <h2 className="text-2xl">Hello, {user.username}!</h2>
+          <p className="text-xl">{user.email}</p> */}
         </>
       ) : (
         <p>Loading...</p>

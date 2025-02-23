@@ -175,14 +175,17 @@
 #         raise e
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=str(e))
-
-
-from fastapi import APIRouter, HTTPException, Depends
+import logging
+import os
+from pdf_generator import json_to_pdf, load_json 
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Response
 from pydantic import BaseModel
 from auth import decode_access_token
 from database import users_collection, stories_collection
 import google.generativeai as genai
 from bson import ObjectId
+
+logging.basicConfig(level=logging.INFO)
 
 router = APIRouter()
 genai.configure(api_key="AIzaSyDYz6fwf8fQuQa_sKoLhSDyS3PRP5FQHfM")  # Replace with your API key
@@ -193,6 +196,7 @@ user_contexts = {}
 def get_user_context(user_email: str):
     if user_email not in user_contexts:
         user_contexts[user_email] = {}
+    print(user_contexts[user_email])
     return user_contexts[user_email]
 
 def save_user_context(user_email: str, context: dict):
@@ -215,23 +219,24 @@ def save_user_context(user_email: str, context: dict):
 #         print(f"Error saving to MongoDB: {e}")
 #         raise HTTPException(status_code=500, detail="Error saving story")
 
-def store_final_story(user_email: str, context: dict):
+def store_final_story(user_email: str, context: dict , storyId : str):
     user = users_collection.find_one({"email": user_email})
     print(f"user: {user}")
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user_id = str(user["_id"])
     print(f"user_id: {user_id}, type:{type(user_id)}")
-    print(f"context: {context}")
+    # print(f"context: {context}")
 
     try:
-        existing_story = stories_collection.find_one({"user_id": ObjectId(user_id)})
-        print(f"existing_story: {existing_story}")
-        if existing_story:
-            result = stories_collection.update_one(
-                {"user_id": ObjectId(user_id)}, {"$set": {"context": context}}
-            )
-            print(f"update result: {result.modified_count}")
+        if storyId != "":
+            existing_story = stories_collection.find_one({"_id": ObjectId(storyId)})
+            print(f"existing_story: {existing_story}")
+            if existing_story:
+                result = stories_collection.update_one(
+                    {"_id": ObjectId(storyId)}, {"$set": {"context": context}}
+                )
+                print(f"update result: {result.modified_count}")
         else:
             result = stories_collection.insert_one({"user_id": ObjectId(user_id), "context": context})
             print(f"insert result: {result.inserted_id}")
@@ -328,6 +333,7 @@ class StoryRequest(BaseModel):
     edit_save: bool = False
     token: str
     done: bool = False
+    newStry: str
 
 @router.post("/generate_story")
 async def generate_story(request: StoryRequest):
@@ -335,6 +341,14 @@ async def generate_story(request: StoryRequest):
         payload = decode_access_token(request.token)
         user_email = payload.get("sub")
         user_context = get_user_context(user_email)
+# some new code
+        # if request.newStry == "" :
+        #     user = users_collection.find_one({"email": user_email})
+        #     user_id = str(user["_id"])
+        #     print(request.newStry," new Id")
+        #     print(f"user_id: {user_id}, type:{type(user_id)}")
+        #     result = stories_collection.insert_one({"user_id": ObjectId(user_id), "context": user_context})
+        #     print(f"insert result: {result.inserted_id}")
 
         if request.start_fresh:
             user_context = {}
@@ -368,8 +382,12 @@ async def generate_story(request: StoryRequest):
 
         save_user_context(user_email, user_context)
 
-        if request.done:
-            store_final_story(user_email, user_context)
+        if request.done and request.newStry == "" :
+            store_final_story(user_email, user_context , request.newStry)
+            del user_contexts[user_email]
+
+        if request.done :
+            store_final_story(user_email, user_context , request.newStry)
             del user_contexts[user_email]
 
         return {
@@ -383,3 +401,75 @@ async def generate_story(request: StoryRequest):
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+@router.get("/user_stories")
+async def get_user_stories(user_id: str = Query(...)):
+    try:
+        stories = list(stories_collection.find({"user_id": ObjectId(user_id)}))
+        for story in stories:
+            story["_id"] = str(story["_id"])  # Convert _id to string
+            story["user_id"] = str(story["user_id"]) #convert user_id to string
+
+        return {"stories": stories}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{story_id}")
+async def get_story_by_id(story_id: str):
+    try:
+        story = stories_collection.find_one({"_id": ObjectId(story_id)})
+        if story:
+            # Convert ObjectId to string
+            story["_id"] = str(story["_id"])
+            story["user_id"] = str(story["user_id"])
+
+            return {"story": story}
+        else:
+            raise HTTPException(status_code=404, detail="Story not found")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+@router.get("/generate_pdf/{story_id}")
+async def generate_pdf(story_id: str):
+    try:
+        logging.info(f"Generating PDF for story ID: {story_id}")
+
+        # Fetch the story using get_story_by_id
+        stry = await get_story_by_id(story_id)
+        if not stry or not stry.get("story") or not stry["story"].get("context"):
+            logging.warning(f"Story context not found for story ID: {story_id}")
+            raise HTTPException(status_code=404, detail="Story context not found.")
+
+        story_context = stry["story"]["context"]
+
+        # Generate the PDF directly from the story context using pdf_generator.py function
+        pdf_filename = f"story_summary_{story_id}.pdf"
+        json_to_pdf(story_context, pdf_filename)
+
+        # Check if the PDF file was created
+        if not os.path.exists(pdf_filename):
+            logging.error(f"PDF file not created: {pdf_filename}")
+            raise HTTPException(status_code=500, detail="Failed to generate PDF.")
+
+        with open(pdf_filename, "rb") as pdf_file:
+            pdf_content = pdf_file.read()
+
+      
+
+        headers = {
+            "Content-Disposition": f"attachment; filename=story_summary_{story_id}.pdf"
+        }
+        return Response(content=pdf_content, media_type="application/pdf", headers=headers)
+
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        logging.exception(f"Error generating PDF for story ID: {story_id}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")

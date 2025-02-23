@@ -111,16 +111,69 @@
 #         }
 #     except Exception as e:
 #         raise HTTPException(status_code=401, detail="Could not validate credentials")
+# from fastapi import APIRouter, HTTPException, Depends
+# from pydantic import BaseModel
+# from auth import create_access_token, verify_password, decode_access_token , get_password_hash
+# from database import users_collection
+# from fastapi.security import OAuth2PasswordBearer
+# from bson import ObjectId
+
+# router = APIRouter()
+
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# # UserSignup model for signup
+# class UserSignup(BaseModel):
+#     username: str
+#     email: str
+#     password: str
+
+# # UserLogin model for login (only email and password needed)
+# class UserLogin(BaseModel):
+#     email: str
+#     password: str
+
+# # Signup route
+# @router.post("/signup")
+# async def signup(user: UserSignup):
+#     if users_collection.find_one({"email": user.email}):
+#         raise HTTPException(status_code=400, detail="User already exists")
+    
+#     hashed_password = get_password_hash(user.password)
+#     users_collection.insert_one({
+#         "username": user.username,
+#         "email": user.email,
+#         "password": hashed_password
+#     })
+#     return {"message": "User created successfully", "username": user.username, "email": user.email}
+
+# # Login route (POST method to handle login)
+
+# @router.post("/login")
+# async def login(user: UserLogin):
+#     # Check if the user exists in the database
+#     existing_user = users_collection.find_one({"email": user.email})
+    
+#     if not existing_user:
+#         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+#     # Verify the password
+#     if not verify_password(user.password, existing_user["password"]):
+#         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+#     # Generate the access token
+#     access_token = create_access_token(data={"sub": user.email})
+    
+#     return {"access_token": access_token, "token_type": "bearer"}
+
+# user_routes.py
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from auth import create_access_token, verify_password, decode_access_token , get_password_hash
+from auth import create_access_token, verify_password, get_password_hash
 from database import users_collection
-from fastapi.security import OAuth2PasswordBearer
 from bson import ObjectId
 
 router = APIRouter()
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 # UserSignup model for signup
 class UserSignup(BaseModel):
@@ -138,7 +191,7 @@ class UserLogin(BaseModel):
 async def signup(user: UserSignup):
     if users_collection.find_one({"email": user.email}):
         raise HTTPException(status_code=400, detail="User already exists")
-    
+
     hashed_password = get_password_hash(user.password)
     users_collection.insert_one({
         "username": user.username,
@@ -148,20 +201,17 @@ async def signup(user: UserSignup):
     return {"message": "User created successfully", "username": user.username, "email": user.email}
 
 # Login route (POST method to handle login)
-
 @router.post("/login")
 async def login(user: UserLogin):
-    # Check if the user exists in the database
     existing_user = users_collection.find_one({"email": user.email})
-    
+
     if not existing_user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    # Verify the password
+
     if not verify_password(user.password, existing_user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    # Generate the access token
+
     access_token = create_access_token(data={"sub": user.email})
-    
-    return {"access_token": access_token, "token_type": "bearer"}
+    user_id = str(existing_user["_id"])  # Convert ObjectId to string
+
+    return {"access_token": access_token, "token_type": "bearer", "user_id": user_id}  # Return user_id
