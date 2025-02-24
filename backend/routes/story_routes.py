@@ -8,7 +8,7 @@
 
 # router = APIRouter()
 
-# genai.configure(api_key="AIzaSyDYz6fwf8fQuQa_sKoLhSDyS3PRP5FQHfM") # Replace with your actual API Key
+# genai.configure(api_key="") # Replace with your actual API Key
 # model = genai.GenerativeModel("gemini-pro")
 
 # context_file = "story2_context.json"
@@ -188,7 +188,7 @@ from bson import ObjectId
 logging.basicConfig(level=logging.INFO)
 
 router = APIRouter()
-genai.configure(api_key="AIzaSyDYz6fwf8fQuQa_sKoLhSDyS3PRP5FQHfM")  # Replace with your API key
+genai.configure(api_key="")  # Replace with your API key
 model = genai.GenerativeModel("gemini-pro")
 
 user_contexts = {}
